@@ -1,0 +1,214 @@
+require "torch"
+require "nn"
+require "optim"
+
+--loading training data in array
+local vocab_train = io.open("vocab_traindata.csv")
+
+local vocab_traindata = {}
+
+local i = 0  
+for line in vocab_train:lines('*l') do  
+i = i + 1
+  local l = line:split(' ')
+   vocab_traindata[i] = {}
+  for key, val in ipairs(l) do
+   vocab_traindata[i][key] = val
+  end
+end
+vocab_train:close()
+
+--loading testing data in array
+local vocab_test = io.open("vocab_testdata.csv")
+
+local vocab_testdata = {}
+
+local i = 0  
+for line in vocab_test:lines('*l') do  
+i = i + 1
+  local l = line:split(' ')
+   vocab_testdata[i] = {}
+  for key, val in ipairs(l) do
+   vocab_testdata[i][key] = val
+  end
+end
+vocab_test:close()
+
+--function to get feature vectors for each tweet
+
+function Sentence2Vec(vocab_data)
+words = {}; 
+tweets = {};
+vocab_ByIndex1 = {}; -- word to index
+vocab_ByIndex2 = {}; -- tweet to index
+tweet_wordindex = {}; -- each tweet as an array of indices of its words
+
+
+for i=1, #vocab_data do
+	j = 1;
+	tweet_wordindex[i] = {}
+	tweet = ''
+	while(vocab_data[i][j]~=nil) do
+   			word = '';
+   			word = word .. vocab_data[i][j];
+			tweet = tweet .. ' ' .. word
+			if (word~="") then
+				local temp = 0;
+				for k = 1 , #vocab_ByIndex1 do
+					if(word == vocab_ByIndex1[k]) then
+						temp = k;
+					end
+				end
+				if(temp == 0) then
+   		         		words[word] = j;
+					temp = j;
+   		         		table.insert(vocab_ByIndex1,word)
+				end
+				tweet_wordindex[i][j] = temp;
+			else
+				tweet_wordindex[i][j] = 1;
+			end			
+		j = j + 1;
+	end
+	tweets[tweet] = i
+	table.insert(vocab_ByIndex2,tweet)
+end
+
+vocab_words = words;
+vocab_tweets = tweets;
+
+-- [[build dataset for training the neural network. Each entry consists of a word from a window size of 3 given a tweet id and their corresponding labels--]]
+
+dataset = {}
+dataset_size = 0
+
+for i = 1,#vocab_ByIndex2 do
+	j = 1
+	tweet_id = torch.Tensor{i}
+	
+	while(vocab_data[i][j+2] ~= nil) do
+		words = torch.Tensor{tweet_wordindex[i][j],tweet_wordindex[i][j+1],tweet_wordindex[i][j+2]}
+		label = torch.Tensor({1,1,1})
+		dataset[dataset_size+1] = {{words,tweet_id},label}
+		dataset_size = dataset_size + 1
+		j = j+1
+	end
+	count = 0
+	
+	if(j == 1) then
+		if(vocab_data[i][2] == nil) then
+			word2 = torch.random(#vocab_ByIndex1)
+			word3 = torch.random(#vocab_ByIndex1)
+		
+			while( word2 == word1 or word == 0) do
+				word2 = torch.random(#vocab_ByIndex1)
+			end
+			
+			while( word3 == word1 or word3 == 0) do
+				word3 = torch.random(#vocab_ByIndex1)
+			end
+	
+			words = torch.Tensor({tweet_wordindex[i][1],word2,word3})
+			label = torch.Tensor({1,0,0})
+		else
+			word3 = torch.random(#vocab_ByIndex1)
+		
+			while( word3 == word1 or word3 == 0) do
+				word3 = torch.random(#vocab_ByIndex1);
+			end
+			
+			words = torch.Tensor({tweet_wordindex[i][1],tweet_wordindex[i][2],word3})
+			label = torch.Tensor({1,1,0})
+		end
+		dataset[dataset_size+1] = {{words,tweet_id},label}
+		dataset_size = dataset_size + 1
+	end
+	
+end	
+
+function dataset:size() return dataset_size end
+
+sentence_embed_size=10
+learning_rate=0.1
+max_epochs=5
+window_size=3
+
+--the neural network model
+
+tweetLookup=nn.LookupTable(#vocab_ByIndex2,sentence_embed_size)
+wordLookup=nn.LookupTable(#vocab_ByIndex1,sentence_embed_size)
+model=nn.Sequential()
+model:add(nn.ParallelTable())
+model.modules[1]:add(wordLookup)
+model.modules[1]:add(tweetLookup)
+model:add(nn.MM(false,true))
+model:add(nn.Sigmoid())
+
+criterion=nn.BCECriterion()
+
+trainer=nn.StochasticGradient(model,criterion)
+trainer.learningRate=learning_rate
+trainer.maxIteration=max_epochs
+
+trainer:train(dataset)
+sentence_vector = torch.Tensor{#vocab_ByIndex2,sentence_embed_size}
+sentence_vector = tweetLookup.weight
+ return sentence_vector
+end
+
+traindata_sentencevectors = Sentence2Vec(vocab_traindata)
+testdata_sentencevectors = Sentence2Vec(vocab_testdata)
+
+-- write training and testing vectors to separate files 
+
+local f = assert(io.open("/home/raksha/train_vectors", "w"))
+for i = 1,#vocab_traindata do
+	for j = 1,10 do
+		A = traindata_sentencevectors[i][j]
+		if(A == nil) then
+			A = 0	
+		end
+    		local t = f:write(tostring(A))
+		local t = f:write(" ")
+	end
+	local t = f:write("\n")
+end
+f:close()
+
+local f = assert(io.open("/home/raksha/test_vectors", "w"))
+for i = 1,#vocab_testdata do
+	for j = 1,10 do
+		A = testdata_sentencevectors[i][j]
+		if(A == nil) then
+			A = 0	
+		end
+    		local t = f:write(tostring(A))
+		local t = f:write(" ")
+	end
+	local t = f:write("\n")
+end
+f:close()
+--[[while(count<3) do
+		j = 1
+		y1 = torch.random(#vocab_ByIndex1);
+		y2 = torch.random(#vocab_ByIndex1);
+		y3 = torch.random(#vocab_ByIndex1);
+	
+		while(vocab_data[i][j]~=nil) do
+			if((y1 == tweet_wordindex[i][j]) or (y2 == tweet_wordindex[i][j]) or (y3 == tweet_wordindex[i][j])) then
+				break;
+			else
+				j = j + 1;
+			end
+		end
+		if(vocab_data[i][j] == nil) then
+			count = 3
+		end
+	end
+	
+	context = torch.Tensor{y1,y2,y3}
+	label = torch.Tensor({0,0,0})
+	tweet = torch.Tensor{i}
+	dataset[dataset_size+1] = {{context,tweet},label}
+	
+	dataset_size = dataset_size + 1	--]]
